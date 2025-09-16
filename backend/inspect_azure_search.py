@@ -1,9 +1,9 @@
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 
-AZURE_SEARCH_ENDPOINT = "https://multimodalsearch2.search.windows.net"
-AZURE_SEARCH_INDEX = "index-2"
-AZURE_SEARCH_API_KEY = "U3UCrPsrhEi7zQKeHIHLpq6jQLIEToR4dFUSgoFqcOAzSeDH7um0"
+AZURE_SEARCH_ENDPOINT = ""
+AZURE_SEARCH_INDEX = ""
+AZURE_SEARCH_API_KEY = ""
 
 def get_search_client():
     return SearchClient(

@@ -4,11 +4,7 @@ import json
 import os
 from msrest.authentication import CognitiveServicesCredentials
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
-# Example usage (call these in your indexing/search logic):
-# docs = [{"id": "1", "content": "Sample chunk", "embedding": [0.1, 0.2], "type": "text"}]
-# azure_search_upload_documents(docs)
-# search_results = azure_search_query("sample")
-# print(search_results)
+
 from indexing.azure_search import search_text_embedding, search_image_embedding
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -141,8 +137,8 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
 #     return {"status": "Images processed", "files": processed}
 
 # Load credentials from environment variables
-AZURE_CV_ENDPOINT = os.getenv("AZURE_CV_ENDPOINT")
-AZURE_CV_KEY = os.getenv("AZURE_CV_KEY")
+AZURE_CV_ENDPOINT = ""
+AZURE_CV_KEY = ""
 
 print("AZURE_CV_KEY:", AZURE_CV_KEY)
 print("AZURE_CV_ENDPOINT:", AZURE_CV_ENDPOINT)
@@ -334,9 +330,9 @@ async def search_image(file: UploadFile = File(...)):
 
 
 #  Azure AI Search 
-AZURE_SEARCH_ENDPOINT = "https://multimodalsearch2.search.windows.net"
-AZURE_SEARCH_INDEX = "index-2"
-AZURE_SEARCH_API_KEY = "U3UCrPsrhEi7zQKeHIHLpq6jQLIEToR4dFUSgoFqcOAzSeDH7um0"
+AZURE_SEARCH_ENDPOINT = ""
+AZURE_SEARCH_INDEX = ""
+AZURE_SEARCH_API_KEY = ""
 
 def get_search_client():
     return SearchClient(
