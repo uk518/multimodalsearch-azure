@@ -1,6 +1,8 @@
 #  CLIP embedding stub
 #  OpenAI CLIP or transformers
-
+from PIL import Image
+import torch
+from transformers import CLIPProcessor, CLIPModel
 
 def get_image_embedding(image_path):
     """
@@ -8,10 +10,8 @@ def get_image_embedding(image_path):
     Returns a list of floats (embedding vector).
     """
     try:
-        from PIL import Image
-        import torch
-        from transformers import CLIPProcessor, CLIPModel
-        # Load model and processor (cache for performance)
+        
+        # Load model and processor 
         model = CLIPModel.from_pretrained("openai/clip-vit-base-patch16")
         processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch16", use_fast=True)
         image = Image.open(image_path).convert("RGB")

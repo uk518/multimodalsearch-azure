@@ -1,9 +1,10 @@
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
+import os
 
-AZURE_SEARCH_ENDPOINT = ""
-AZURE_SEARCH_INDEX = ""
-AZURE_SEARCH_API_KEY = ""
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
 
 def get_search_client():
     return SearchClient(

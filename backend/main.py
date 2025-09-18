@@ -1,17 +1,21 @@
+import os
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
 import re
 import json
-import os
+
+from PIL import Image
+import pytesseract
 from msrest.authentication import CognitiveServicesCredentials
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
-
+from fastapi import UploadFile, File
+from typing import List
 from indexing.azure_search import search_text_embedding, search_image_embedding
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-import os
+import base64
 from extraction.pdf import extract_text_and_images
 from extraction.image import extract_image_and_ocr
 from embeddings.text import get_text_embedding
@@ -40,13 +44,13 @@ app.add_middleware(
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
 def split_text(text, chunk_size=500):
     # Simple text splitter by chunk size
     return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
 
 
 def save_image_from_pdf(image_dict, save_dir, idx):
-    import base64
     img_data = image_dict.get('data')
     if img_data:
         img_bytes = base64.b64decode(img_data)
@@ -137,18 +141,19 @@ async def upload_pdf(files: List[UploadFile] = File(...)):
 #     return {"status": "Images processed", "files": processed}
 
 # Load credentials from environment variables
-AZURE_CV_ENDPOINT = ""
-AZURE_CV_KEY = ""
+AZURE_CV_ENDPOINT = os.getenv("AZURE_CV_ENDPOINT")
+AZURE_CV_KEY = os.getenv("AZURE_CV_KEY")
+if not AZURE_CV_ENDPOINT or not AZURE_CV_KEY:
+    raise ValueError("Both AZURE_CV_ENDPOINT and AZURE_CV_KEY must be set as environment variables.")
+
 
 print("AZURE_CV_KEY:", AZURE_CV_KEY)
 print("AZURE_CV_ENDPOINT:", AZURE_CV_ENDPOINT)
 
 
 # Initialize the Computer Vision client
-computervision_client = ComputerVisionClient(
-    AZURE_CV_ENDPOINT,
-    CognitiveServicesCredentials(AZURE_CV_KEY)
-)
+computervision_client = ComputerVisionClient(AZURE_CV_ENDPOINT,CognitiveServicesCredentials(AZURE_CV_KEY))
+
 
 def extract_image_and_ocr_azure(image_path):
     with open(image_path, "rb") as image_stream:
@@ -163,25 +168,111 @@ def extract_image_and_ocr_azure(image_path):
 
 
 
-
-
+def extract_ocr_text(image_path):
+    # Use pytesseract to extract text from image
+    try:
+        return pytesseract.image_to_string(Image.open(image_path))
+    except Exception as e:
+        return f"OCR extraction failed: {str(e)}"
 
 @app.post("/upload/image")
-async def upload_image(file: UploadFile = File(...)):
-    upload_dir = os.path.join(os.getcwd(), "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, file.filename)
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
-    meta = extract_image_and_ocr_azure(file_path)
-    meta['image_url'] = f"/static/{os.path.basename(file_path)}"
-    embedding = get_image_embedding(file_path)
-    if hasattr(embedding, 'tolist'):
-        embedding = embedding.tolist()
-    doc_id = sanitize_key(f"img_{file.filename}")
-    import json
-    index_document({"id": doc_id, "type": "image", "meta": json.dumps(meta), "embedding": embedding})
-    return {"status": "success", "filename": file.filename, "ocr_text": meta['ocr_text']}
+async def upload_images(files: List[UploadFile] = File(...)):
+    processed = []
+    errors = []
+    for idx, file in enumerate(files):
+        try:
+            file_path = os.path.join(UPLOAD_DIR, file.filename)
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+
+            # Extract metadata
+            meta = {}
+            try:
+                with Image.open(file_path) as img:
+                    meta = {
+                        "format": img.format,
+                        "size_bytes": os.path.getsize(file_path),
+                        "dimensions": img.size
+                    }
+            except Exception as e:
+                meta["error"] = f"Metadata extraction error: {str(e)}"
+
+            # Generate CLIP embedding (replace with your actual CLIP code)
+            try:
+                embedding = get_image_embedding(file_path)
+                if hasattr(embedding, "tolist"):
+                    embedding = embedding.tolist()
+            except Exception as e:
+                embedding = []
+                meta["embedding_error"] = str(e)
+
+            # OCR extraction: Try Azure first, fallback to Tesseract
+            ocr_text = ""
+            try:
+                azure_ocr = extract_image_and_ocr_azure(file_path)
+                ocr_text = azure_ocr.get("ocr_text", "")
+            except Exception as azure_e:
+                try:
+                    ocr_text = extract_ocr_text(file_path)
+                except Exception as tess_e:
+                    ocr_text = f"OCR error: Azure: {azure_e}, Tesseract: {tess_e}"
+
+            # Index image in Azure AI Search
+            meta['image_url'] = f"/static/{os.path.basename(file_path)}"
+            doc_id = sanitize_key(f"img_{file.filename}")
+            index_document({
+                "id": doc_id,
+                "type": "image",
+                "meta": json.dumps(meta),
+                "embedding": embedding
+            })
+
+            # Index OCR text if available
+            if ocr_text:
+                text_embedding = get_text_embedding(ocr_text)
+                if hasattr(text_embedding, "tolist"):
+                    text_embedding = text_embedding.tolist()
+                doc_id = sanitize_key(f"imgocr_{file.filename}")
+                index_document({
+                    "id": doc_id,
+                    "type": "text",
+                    "content": ocr_text,
+                    "embedding": text_embedding
+                })
+
+            processed.append({
+                "filename": file.filename,
+                "meta": meta,
+                "embedding": embedding,
+                "ocr_text": ocr_text,
+                "status": "success"
+            })
+        except Exception as e:
+            errors.append({"filename": file.filename, "error": str(e)})
+
+    return {
+        "status": "completed",
+        "processed": processed,
+        "errors": errors
+    }
+
+
+# @app.post("/upload/image")
+# async def upload_image(file: UploadFile = File(...)):
+#     upload_dir = os.path.join(os.getcwd(), "uploads")
+#     os.makedirs(upload_dir, exist_ok=True)
+#     file_path = os.path.join(upload_dir, file.filename)
+#     with open(file_path, "wb") as f:
+#         f.write(await file.read())
+#     meta = extract_image_and_ocr_azure(file_path)
+#     meta['image_url'] = f"/static/{os.path.basename(file_path)}"
+#     embedding = get_image_embedding(file_path)
+#     if hasattr(embedding, 'tolist'):
+#         embedding = embedding.tolist()
+#     doc_id = sanitize_key(f"img_{file.filename}")
+#     import json
+#     index_document({"id": doc_id, "type": "image", "meta": json.dumps(meta), "embedding": embedding})
+#     return {"status": "success", "filename": file.filename, "ocr_text": meta['ocr_text']}
     
     # OCR text embedding
     ocr_text = meta.get('ocr_text') if isinstance(meta, dict) else None
@@ -260,10 +351,9 @@ def search_vector_db(query_embedding, top_k=5, mode='text'):
     """
     
     client = get_search_client()
-    # Use vector search if available, else fallback to text search
     results = []
-    # Example: search all docs, compute similarity
-    docs = client.search("*")  # Get all docs (replace with vector search if available)
+    #search all docs, compute similarity
+    docs = client.search("*") 
     for doc in docs:
         embedding = doc.get('embedding')
         if embedding:
@@ -330,9 +420,9 @@ async def search_image(file: UploadFile = File(...)):
 
 
 #  Azure AI Search 
-AZURE_SEARCH_ENDPOINT = ""
-AZURE_SEARCH_INDEX = ""
-AZURE_SEARCH_API_KEY = ""
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
 
 def get_search_client():
     return SearchClient(

@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+import os
 def plot_similarity_heatmap(query_embedding, result_embeddings, result_ids=None, save_path=None):
     """
     Plots a heatmap of cosine similarity between the query embedding and result embeddings.
@@ -39,9 +39,10 @@ from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 
 # Azure credentials
-AZURE_SEARCH_ENDPOINT = ""
-AZURE_SEARCH_INDEX = ""
-AZURE_SEARCH_API_KEY = ""
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
+
 def get_search_client():
     return SearchClient(
         endpoint=AZURE_SEARCH_ENDPOINT,
